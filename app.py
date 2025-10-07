@@ -3,9 +3,9 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, create_engine, insert, select
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, create_engine, insert, select  # type: ignore[import]
+from sqlalchemy.engine import Engine  # type: ignore[import]
+from sqlalchemy.exc import SQLAlchemyError  # type: ignore[import]
 
 DB_PATH = "liberal_arts.db"
 
