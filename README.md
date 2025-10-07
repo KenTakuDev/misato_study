@@ -6,7 +6,8 @@
 ## 動作要件
 - Python 3.9+
 - macOS / Windows / Linux いずれも可
-- ネット接続不要（ローカル保存：SQLite）
+- デフォルトはローカルSQLiteに保存（ネット接続不要）
+- Supabase等のPostgreSQLを利用する場合はインターネット接続と `DATABASE_URL` の設定が必要
 
 ## 使い方（3分）
 1. このフォルダを任意の場所に保存します。
@@ -24,6 +25,10 @@
    ```
 5. ブラウザが自動で開かない場合は、表示されたURL（通常 http://localhost:8501）にアクセスします。
 
+### 環境変数
+- `DATABASE_URL`: SQLAlchemy互換の接続文字列。Supabaseの値（`postgres://...`）も自動で `postgresql+psycopg2://` に変換されます。
+- `APP_PASSCODE`: 任意設定。設定した場合はアプリ起動時にワンタイム入力が求められます。
+
 ## 機能
 - 1日1枚メモ：日付／事実／問い／結論／次の問いを保存
 - 週1レポート：結論→根拠3つ→反論→まとめ
@@ -32,7 +37,8 @@
 - エクスポート：CSV（3種）とMarkdown（全件まとめ）
 
 ## データ保存
-- カレントディレクトリに `liberal_arts.db`（SQLite）として保存します。
+- `DATABASE_URL` が未設定の場合はカレントディレクトリに `liberal_arts.db`（SQLite）として保存します。
+- `DATABASE_URL` を設定するとPostgreSQL（例：Supabase）に保存されます。
 - CSVは同ディレクトリに `daily_memo.csv` などのファイルで出力します。
 
 ## よくある質問

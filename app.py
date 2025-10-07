@@ -1,89 +1,148 @@
+import os
+from datetime import datetime
 
-import sqlite3
-from contextlib import closing
 import pandas as pd
 import streamlit as st
-from datetime import datetime
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, create_engine, insert, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 DB_PATH = "liberal_arts.db"
 
-# -----------------------------
-# Database helpers
-# -----------------------------
+
+def _create_engine() -> Engine:
+    """Create a SQLAlchemy engine with Postgres preferred and SQLite fallback."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        # Allow DATABASE_URL values like "postgres://" from Supabase
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif database_url.startswith("postgresql://") and "+" not in database_url:
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    else:
+        database_url = f"sqlite:///{DB_PATH}"
+
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    return create_engine(database_url, connect_args=connect_args, future=True, pool_pre_ping=True)
+
+
+engine = _create_engine()
+metadata = MetaData()
+
+daily_memo = Table(
+    "daily_memo",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("date", String, nullable=False),
+    Column("fact", String),
+    Column("question", String),
+    Column("conclusion", String),
+    Column("next_topic", String),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+)
+
+weekly_report = Table(
+    "weekly_report",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("theme", String, nullable=False),
+    Column("conclusion", String),
+    Column("evidence1", String),
+    Column("evidence2", String),
+    Column("evidence3", String),
+    Column("counter", String),
+    Column("summary", String),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+)
+
+monthly_presentation = Table(
+    "monthly_presentation",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("title", String, nullable=False),
+    Column("problem", String),
+    Column("hypothesis", String),
+    Column("reasoning1", String),
+    Column("reasoning2", String),
+    Column("reasoning3", String),
+    Column("counter_reassert", String),
+    Column("takeaway", String),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+)
+
+TABLE_MAP = {
+    "daily_memo": daily_memo,
+    "weekly_report": weekly_report,
+    "monthly_presentation": monthly_presentation,
+}
+
 def init_db():
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS daily_memo (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                fact TEXT,
-                question TEXT,
-                conclusion TEXT,
-                next_topic TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS weekly_report (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                theme TEXT NOT NULL,
-                conclusion TEXT,
-                evidence1 TEXT,
-                evidence2 TEXT,
-                evidence3 TEXT,
-                counter TEXT,
-                summary TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS monthly_presentation (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                problem TEXT,
-                hypothesis TEXT,
-                reasoning1 TEXT,
-                reasoning2 TEXT,
-                reasoning3 TEXT,
-                counter_reassert TEXT,
-                takeaway TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        conn.commit()
+    try:
+        metadata.create_all(engine)
+    except SQLAlchemyError as exc:
+        st.error(f"データベースの初期化に失敗しました: {exc}")
 
 def insert_daily(date, fact, question, conclusion, next_topic):
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO daily_memo (date, fact, question, conclusion, next_topic, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (date, fact, question, conclusion, next_topic, datetime.utcnow().isoformat()))
-        conn.commit()
+    payload = {
+        "date": date,
+        "fact": fact,
+        "question": question,
+        "conclusion": conclusion,
+        "next_topic": next_topic,
+        "created_at": datetime.utcnow(),
+    }
+    _insert(daily_memo, payload)
+
 
 def insert_weekly(theme, conclusion, e1, e2, e3, counter, summary):
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO weekly_report (theme, conclusion, evidence1, evidence2, evidence3, counter, summary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (theme, conclusion, e1, e2, e3, counter, summary, datetime.utcnow().isoformat()))
-        conn.commit()
+    payload = {
+        "theme": theme,
+        "conclusion": conclusion,
+        "evidence1": e1,
+        "evidence2": e2,
+        "evidence3": e3,
+        "counter": counter,
+        "summary": summary,
+        "created_at": datetime.utcnow(),
+    }
+    _insert(weekly_report, payload)
+
 
 def insert_monthly(title, problem, hypothesis, r1, r2, r3, counter_reassert, takeaway):
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO monthly_presentation (title, problem, hypothesis, reasoning1, reasoning2, reasoning3, counter_reassert, takeaway, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (title, problem, hypothesis, r1, r2, r3, counter_reassert, takeaway, datetime.utcnow().isoformat()))
-        conn.commit()
+    payload = {
+        "title": title,
+        "problem": problem,
+        "hypothesis": hypothesis,
+        "reasoning1": r1,
+        "reasoning2": r2,
+        "reasoning3": r3,
+        "counter_reassert": counter_reassert,
+        "takeaway": takeaway,
+        "created_at": datetime.utcnow(),
+    }
+    _insert(monthly_presentation, payload)
+
+
+def _insert(table: Table, payload: dict):
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert(table).values(**payload))
+    except SQLAlchemyError as exc:
+        st.error(f"保存中にエラーが発生しました: {exc}")
+
 
 def fetch_table(name):
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        df = pd.read_sql_query(f"SELECT * FROM {name} ORDER BY id DESC", conn)
+    table = TABLE_MAP[name]
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(select(table).order_by(table.c.id.desc()))
+            rows = result.fetchall()
+            df = pd.DataFrame(rows, columns=result.keys())
+    except SQLAlchemyError as exc:
+        st.error(f"データ取得中にエラーが発生しました: {exc}")
+        return pd.DataFrame()
     return df
+
 
 def export_markdown():
     """Export all entries into a single Markdown text."""
@@ -132,16 +191,36 @@ def export_markdown():
 # UI
 # -----------------------------
 st.set_page_config(page_title="Liberal Arts Practice", page_icon="🧠", layout="wide")
-st.title("🧠 リベラルアーツ鍛錬アプリ（最小セット）")
-st.write("毎日の1枚メモ、週1レポート、月1ミニ発表の素振りを行うための極小アプリです。")
 
 init_db()
+
+passcode = st.secrets.get("APP_PASSCODE")
+if passcode:
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if not st.session_state["authenticated"]:
+        st.title("🔒 パスコードを入力")
+        st.write("閲覧には共有されたパスコードが必要です。")
+        with st.form("passcode_form"):
+            input_code = st.text_input("パスコード", type="password")
+            submitted = st.form_submit_button("送信")
+            if submitted:
+                if input_code == passcode:
+                    st.session_state["authenticated"] = True
+                    st.success("認証に成功しました。")
+                    st.experimental_rerun()
+                else:
+                    st.error("パスコードが一致しません。")
+        st.stop()
+
+st.title("🧠 リベラルアーツ鍛錬アプリ（最小セット）")
+st.write("毎日の1枚メモ、週1レポート、月1ミニ発表の素振りを行うための極小アプリです。")
 
 with st.sidebar:
     st.header("メニュー")
     page = st.radio("ページを選択", ["ホーム", "1日1枚メモ", "週1レポート", "月1ミニ発表", "ダッシュボード / エクスポート"])
     st.markdown("---")
-    st.caption("作成：Python + Streamlit / SQLite")
+    st.caption("作成：Python + Streamlit / PostgreSQL (Supabase) または SQLite")
 
 if page == "ホーム":
     st.subheader("使い方")
@@ -245,11 +324,15 @@ elif page == "ダッシュボード / エクスポート":
     st.markdown("#### エクスポート")
     # CSV exports
     if st.button("CSVを書き出す"):
-        with closing(sqlite3.connect(DB_PATH)) as conn:
-            pd.read_sql_query("SELECT * FROM daily_memo", conn).to_csv("daily_memo.csv", index=False)
-            pd.read_sql_query("SELECT * FROM weekly_report", conn).to_csv("weekly_report.csv", index=False)
-            pd.read_sql_query("SELECT * FROM monthly_presentation", conn).to_csv("monthly_presentation.csv", index=False)
-        st.success("CSVを書き出しました。以下からダウンロードできます。")
+        try:
+            with engine.connect() as conn:
+                pd.read_sql("SELECT * FROM daily_memo", conn).to_csv("daily_memo.csv", index=False)
+                pd.read_sql("SELECT * FROM weekly_report", conn).to_csv("weekly_report.csv", index=False)
+                pd.read_sql("SELECT * FROM monthly_presentation", conn).to_csv("monthly_presentation.csv", index=False)
+        except SQLAlchemyError as exc:
+            st.error(f"CSVの書き出しに失敗しました: {exc}")
+        else:
+            st.success("CSVを書き出しました。以下からダウンロードできます。")
 
     for fname, label in [
         ("daily_memo.csv", "📥 daily_memo.csv"),
